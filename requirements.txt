@@ -1,0 +1,4 @@
+click==8.0.3
+colorama==0.4.4
+pyaml==21.10.1
+PyYAML==6.0
