@@ -12,9 +12,8 @@ def set_socket_settings(socket_obj) -> None:
     socket_obj.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 
-def receive_client_message(client_socket, client_addr) -> bytes:
+def receive_client_message(client_socket) -> bytes:
     data = client_socket.recv(1024)
-    print(f'Receive message from {client_addr}')
     return data
 
 
@@ -60,7 +59,8 @@ def run(addr: str, port: int) -> None:
     while True:
         client_socket, client_addr = server_socket.accept()
         print(f'Connection from {client_addr}')
-        client_data = receive_client_message(client_socket, client_addr)
+        client_data = receive_client_message(client_socket)
+        print(f'Receive message from {client_addr}')
         server_msg = form_answer(client_data)
         send_message(client_socket, server_msg)
         client_socket.close()

@@ -26,7 +26,7 @@ def receive_server_message(client_socket) -> bytes:
 
 def parse_server_message(server_answer) -> None:
     server_answer = json.loads(server_answer.decode('utf-8'))
-    print(server_answer)
+    return server_answer
 
 
 @click.command()
@@ -42,7 +42,8 @@ def run(addr: str, port: int) -> None:
     client_socket.connect((addr, port))
     send_message(client_socket)
     server_answer = receive_server_message(client_socket)
-    parse_server_message(server_answer)
+    server_answer = parse_server_message(server_answer)
+    print(server_answer)
     client_socket.close()
 
 
