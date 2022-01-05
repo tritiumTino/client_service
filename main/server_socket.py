@@ -1,7 +1,15 @@
 from __future__ import annotations
+
+import logging
 import socket
+from json import JSONDecodeError
+from typing import Optional
+
 import click as click
 import json
+import log.server_log_config
+
+logger = logging.getLogger('app.server')
 
 
 def generate_socket():
@@ -17,9 +25,25 @@ def receive_client_message(client_socket) -> bytes:
     return data
 
 
-def form_answer(data: bytes) -> bytes:
-    client_data = json.loads(data.decode('utf-8'))
-    client_action = client_data['action']
+def form_answer(data: bytes) -> Optional[bytes]:
+    bad_request = json.dumps(
+            {
+                "response": 500,
+                "alert": 'What are you doing?'
+            }
+        ).encode('utf-8')
+
+    try:
+        client_data = json.loads(data.decode('utf-8'))
+    except JSONDecodeError:
+        logger.error('Unavailable format of client message')
+        return bad_request
+
+    try:
+        client_action = client_data['action']
+    except KeyError:
+        logger.error('No action in client message')
+        return bad_request
 
     if client_action == 'presence':
         server_msg = json.dumps(
@@ -28,15 +52,9 @@ def form_answer(data: bytes) -> bytes:
                 "alert": 'I see you'
             }
         ).encode('utf-8')
+        return server_msg
     else:
-        server_msg = json.dumps(
-            {
-                "response": 500,
-                "alert": 'What are you doing?'
-            }
-        ).encode('utf-8')
-
-    return server_msg
+        return bad_request
 
 
 def send_message(client_socket, server_msg) -> None:
@@ -58,9 +76,9 @@ def run(addr: str, port: int) -> None:
 
     while True:
         client_socket, client_addr = server_socket.accept()
-        print(f'Connection from {client_addr}')
+        logger.info(f'Connection from {client_addr}')
         client_data = receive_client_message(client_socket)
-        print(f'Receive message from {client_addr}')
+        logger.info(f'Receive message from {client_addr}')
         server_msg = form_answer(client_data)
         send_message(client_socket, server_msg)
         client_socket.close()
