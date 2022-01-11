@@ -1,30 +1,55 @@
 from __future__ import annotations
 
+import inspect
 import logging
-import socket
+from functools import wraps
+from socket import socket, AF_INET, SOCK_STREAM, SO_REUSEADDR, SOL_SOCKET
 from json import JSONDecodeError
 from typing import Optional
 
 import click as click
 import json
+
 import log.server_log_config
 
 logger = logging.getLogger('app.server')
 
 
+def log(logger):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            logger.info(
+                'Function %s was called with args: %s',
+                func.__name__,
+                str(*args) + str(**kwargs),
+            )
+            logger.info(
+                'Function %s was called from %s',
+                func.__name__,
+                inspect.stack()[1][3]
+            )
+            result = func(*args, **kwargs)
+            return result
+        return wrapper
+    return decorator
+
+
 def generate_socket():
-    return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    return socket(AF_INET, SOCK_STREAM)
 
 
 def set_socket_settings(socket_obj) -> None:
-    socket_obj.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    socket_obj.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 
 
+@log(logger)
 def receive_client_message(client_socket) -> bytes:
     data = client_socket.recv(1024)
     return data
 
 
+@log(logger)
 def form_answer(data: bytes) -> Optional[bytes]:
     bad_request = json.dumps(
             {
