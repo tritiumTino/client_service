@@ -66,8 +66,9 @@ def read_requests(r_clients):
 
 
 @log(logger)
-def form_answer(data: str) -> Tuple[bytes, bool]:
+def form_answer(data: str) -> Tuple[bytes, bool, bool]:
     is_mass_msg = False
+    is_user_msg = False
     server_answer = json.dumps(
             {
                 "response": 500,
@@ -79,13 +80,14 @@ def form_answer(data: str) -> Tuple[bytes, bool]:
         client_data = json.loads(data)
     except JSONDecodeError:
         logger.error('Unavailable format of client message')
-        return server_answer, is_mass_msg
+        return server_answer, is_mass_msg, is_user_msg
 
     try:
         client_action = client_data['action']
+        to_user = client_data.get("to", False)
     except KeyError:
         logger.error('No action in client message')
-        return server_answer, is_mass_msg
+        return server_answer, is_mass_msg, is_user_msg
 
     if client_action == 'presence':
         server_answer = json.dumps(
@@ -95,6 +97,17 @@ def form_answer(data: str) -> Tuple[bytes, bool]:
             }
         ).encode('utf-8')
 
+    elif client_action == 'msg' and "#" not in to_user:
+        is_mass_msg = False
+        is_user_msg = True
+        server_answer = json.dumps(
+            {
+                "response": 200,
+                "from": client_data["from"],
+                "to": to_user,
+                "message": client_data.get("message")
+            }
+        ).encode('utf-8')
     elif client_action == 'msg':
         is_mass_msg = True
         server_answer = json.dumps(
@@ -104,16 +117,18 @@ def form_answer(data: str) -> Tuple[bytes, bool]:
             }
         ).encode('utf-8')
 
-    return server_answer, is_mass_msg
+    return server_answer, is_mass_msg, is_user_msg
 
 
 def write_responses(requests, w_clients):
     for sock in w_clients:
         if sock in requests:
             try:
-                resp, is_mass_msg = form_answer(requests[sock])
+                resp, is_mass_msg, is_user_msg = form_answer(requests[sock])
                 logger.info("Answer: %s", resp.decode('utf-8'))
-                if not is_mass_msg:
+                if not is_mass_msg and not is_user_msg:
+                    sock.send(resp)
+                elif not is_mass_msg:
                     sock.send(resp)
                 else:
                     for sock_to_write in w_clients:

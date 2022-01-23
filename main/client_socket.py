@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import inspect
 import logging
+import threading
+import time
 from functools import wraps
 from json import JSONDecodeError
 from typing import Optional
@@ -38,6 +40,31 @@ class Log:
         return wrapper
 
 
+def help_text():
+    print('Поддерживаемые команды:')
+    print('message - отправить сообщение. Кому и текст будет запрошены отдельно.')
+    print('help - вывести подсказки по командам')
+    print('exit - выход из программы')
+
+
+def user_actions(socket, username):
+    print(help_text())
+    while True:
+        command = input('Введите команду: ')
+        if command == 'message':
+            send_user_message(socket, username)
+        elif command == 'help':
+            print(help_text())
+        elif command == 'exit':
+            send_exit_message(socket, username)
+            print('Завершение соединения.')
+            logger.info('Завершение работы по команде пользователя.')
+            time.sleep(0.5)
+            break
+        else:
+            print('Команда не распознана, попробойте снова. help - вывести поддерживаемые команды.')
+
+
 @Log(logger)
 def send_client_message(client_socket, message) -> None:
     json_msg = json.dumps(message)
@@ -66,6 +93,37 @@ def send_chat_message(client_socket, username, message) -> None:
         "message": message
     }
     send_client_message(client_socket, msg)
+
+
+def send_user_message(client_socket, username="Guest") -> None:
+    to_user = input('Введите получателя сообщения: ')
+    message = input('Введите сообщение для отправки: ')
+    msg = {
+        "action": "msg",
+        "time": datetime.timestamp(datetime.now()),
+        "to": to_user,
+        "from": username,
+        "message": message
+    }
+    send_client_message(client_socket, msg)
+
+
+def send_exit_message(socket, username="Guest"):
+    msg = {
+        "action": "exit",
+        "time": datetime.timestamp(datetime.now()),
+        "from": username,
+    }
+    send_client_message(socket, msg)
+
+
+def get_server_message(socket):
+    while True:
+        try:
+            data = parse_server_message(receive_server_message(socket))
+            show_answer(data)
+        except Exception as e:
+            logger.critical(e)
 
 
 @Log(logger)
@@ -109,15 +167,13 @@ def run(addr: str, port: int) -> None:
     data = client_socket.recv(1024)
     logger.info(data.decode('utf-8'))
 
-    while True:
-        msg = input('Ваше сообщение: ')
-        if msg == 'exit':
-            break
-        send_chat_message(client_socket, username, msg)
-        data = client_socket.recv(1024)
-        server_answer = parse_server_message(data)
-        if server_answer:
-            show_answer(server_answer)
+    user_interface = threading.Thread(target=user_actions, args=(client_socket, username))
+    user_interface.daemon = True
+    user_interface.start()
+
+    receiver = threading.Thread(target=get_server_message, args=(client_socket,))
+    receiver.daemon = True
+    receiver.start()
 
 
 if __name__ == '__main__':
