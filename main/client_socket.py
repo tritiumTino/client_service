@@ -1,152 +1,105 @@
 from __future__ import annotations
 
-import inspect
 import logging
 import threading
 import time
-from functools import wraps
-from json import JSONDecodeError
-from typing import Optional
 
 import click as click
-from server_socket import generate_socket, set_socket_settings
 from datetime import datetime
-import json
 import log.client_log_config
+from utils import ServerClientMixin
 
 logger = logging.getLogger('app.client')
 
 
-class Log:
-    def __init__(self, logger):
-        self.logger = logger
+class ClientSocket(ServerClientMixin):
+    def __init__(self, addr: str, port: int, logger, username: str = "Guest") -> None:
+        super().__init__(addr, port, logger)
+        self.username = username
 
-    def __call__(self, func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            logger.info(
-                'Function %s was called with args: %s and kwargs: %s',
-                func.__name__,
-                args,
-                kwargs
-            )
-            logger.info(
-                'Function %s was called from %s',
-                func.__name__,
-                inspect.stack()[1][3]
-            )
-            result = func(*args, **kwargs)
-            return result
-        return wrapper
+    def connect(self) -> None:
+        self.logger.info(f'Try to connect to server {self.addr}:{self.port}')
+        self.sock.connect((self.addr, self.port))
+        self.send_presence_message()
 
-
-def help_text():
-    print('Поддерживаемые команды:')
-    print('message - отправить сообщение. Кому и текст будет запрошены отдельно.')
-    print('help - вывести подсказки по командам')
-    print('exit - выход из программы')
-
-
-def user_actions(socket, username):
-    print(help_text())
-    while True:
-        command = input('Введите команду: ')
-        if command == 'message':
-            send_user_message(socket, username)
-        elif command == 'help':
-            print(help_text())
-        elif command == 'exit':
-            send_exit_message(socket, username)
-            print('Завершение соединения.')
-            logger.info('Завершение работы по команде пользователя.')
-            time.sleep(0.5)
-            break
-        else:
-            print('Команда не распознана, попробойте снова. help - вывести поддерживаемые команды.')
-
-
-@Log(logger)
-def send_client_message(client_socket, message) -> None:
-    json_msg = json.dumps(message)
-    client_socket.send(json_msg.encode('utf-8'))
-
-
-def send_presence_message(client_socket, username) -> None:
-    msg = {
-        "action": "presence",
-        "time": datetime.timestamp(datetime.now()),
-        "type": "status",
-        "user": {
-                "account_name": username,
+    def send_presence_message(self) -> None:
+        msg = {
+            "action": "presence",
+            "time": datetime.timestamp(datetime.now()),
+            "type": "status",
+            "user": {
+                "account_name": self.username,
                 "status": "Yep, I am here!"
+            }
         }
-    }
-    send_client_message(client_socket, msg)
+        self.send_msg(msg)
 
+    def send_user_message(self) -> None:
+        to_user = input('Введите получателя сообщения: ')
+        message = input('Введите сообщение для отправки: ')
+        msg = {
+            "action": "msg",
+            "time": datetime.timestamp(datetime.now()),
+            "to": to_user,
+            "from": self.username,
+            "message": message
+        }
+        self.send_msg(msg)
 
-def send_chat_message(client_socket, username, message) -> None:
-    msg = {
-        "action": "msg",
-        "time": datetime.timestamp(datetime.now()),
-        "to": "#room_name",
-        "from": username,
-        "message": message
-    }
-    send_client_message(client_socket, msg)
+    def send_exit_message(self) -> None:
+        msg = {
+            "action": "exit",
+            "time": datetime.timestamp(datetime.now()),
+            "from": self.username,
+        }
+        self.send_msg(msg)
+        self.logger.info('Завершение работы по команде пользователя.')
+        time.sleep(0.5)
 
+    @staticmethod
+    def show_answer(server_answer) -> None:
+        print(server_answer)
 
-def send_user_message(client_socket, username="Guest") -> None:
-    to_user = input('Введите получателя сообщения: ')
-    message = input('Введите сообщение для отправки: ')
-    msg = {
-        "action": "msg",
-        "time": datetime.timestamp(datetime.now()),
-        "to": to_user,
-        "from": username,
-        "message": message
-    }
-    send_client_message(client_socket, msg)
+    def get_server_message(self):
+        while True:
+            try:
+                data = self.receive_msg()
+                self.show_answer(data)
+            except Exception as e:
+                self.logger.critical(e)
 
+    def send_chat_message(self) -> None:
+        to_chat = input('Введите получателя сообщения: ')
+        message = input('Введите сообщение для отправки: ')
+        msg = {
+            "action": "msg",
+            "time": datetime.timestamp(datetime.now()),
+            "to": f"#{to_chat}",
+            "from": self.username,
+            "message": message
+        }
+        self.send_msg(msg)
 
-def send_exit_message(socket, username="Guest"):
-    msg = {
-        "action": "exit",
-        "time": datetime.timestamp(datetime.now()),
-        "from": username,
-    }
-    send_client_message(socket, msg)
+    @staticmethod
+    def help_text():
+        print('Поддерживаемые команды:')
+        print('message - отправить сообщение. Кому и текст будет запрошены отдельно.')
+        print('help - вывести подсказки по командам')
+        print('exit - выход из программы')
 
-
-def get_server_message(socket):
-    while True:
-        try:
-            data = parse_server_message(receive_server_message(socket))
-            show_answer(data)
-        except Exception as e:
-            logger.critical(e)
-
-
-@Log(logger)
-def receive_server_message(client_socket) -> bytes:
-    server_answer = client_socket.recv(1024)
-    return server_answer
-
-
-@Log(logger)
-def parse_server_message(server_answer) -> Optional[dict]:
-    try:
-        server_answer = server_answer.decode('utf-8')
-        if '}{' in server_answer:
-            server_answer = server_answer.replace('}{', '} , {').split(" , ")
-            server_answer = [json.loads(answer) for answer in server_answer]
-        return server_answer
-    except JSONDecodeError as e:
-        logger.error('Not available to decode server answer %s', e)
-        return None
-
-
-def show_answer(server_answer) -> None:
-    print(server_answer)
+    def user_actions(self):
+        self.help_text()
+        while True:
+            command = input('Введите команду: ')
+            if command == 'message':
+                self.send_user_message()
+            elif command == 'help':
+                self.help_text()
+            elif command == 'exit':
+                self.send_exit_message()
+                break
+            else:
+                print('Команда не распознана, попробойте снова. help - вывести поддерживаемые команды.')
 
 
 @click.command()
@@ -157,21 +110,16 @@ def run(addr: str, port: int) -> None:
     Create simple client socket.
     Provide optionally TCP port and IP address of server.
     """
-    client_socket = generate_socket()
-    set_socket_settings(client_socket)
-    logger.info(f'Try to connect to server {addr}:{port}')
-    client_socket.connect((addr, port))
-
     username = input('Ваше имя: ')
-    send_presence_message(client_socket, username)
-    data = client_socket.recv(1024)
-    logger.info(data.decode('utf-8'))
+    client_socket = ClientSocket(addr, port, logger, username)
 
-    user_interface = threading.Thread(target=user_actions, args=(client_socket, username))
+    client_socket.connect()
+
+    user_interface = threading.Thread(target=client_socket.user_actions)
     user_interface.daemon = True
     user_interface.start()
 
-    receiver = threading.Thread(target=get_server_message, args=(client_socket,))
+    receiver = threading.Thread(target=client_socket.get_server_message)
     receiver.daemon = True
     receiver.start()
 
