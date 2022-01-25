@@ -1,7 +1,12 @@
+import ipaddress
+import platform
+import subprocess
 from json import JSONDecodeError
 from socket import socket, AF_INET, SOCK_STREAM, SO_REUSEADDR, SOL_SOCKET
-from typing import Mapping, Any, Optional
+from typing import Mapping, Any, Optional, List, Dict
 import json
+
+from tabulate import tabulate
 
 JSONType = Mapping[str, Any]
 
@@ -35,3 +40,50 @@ class ServerClientMixin:
             msg = None
             self.logger.error('Not available to decode server answer %s', e)
         return msg
+
+
+def ping(host) -> bool:
+    param = '-n' if platform.system().lower() == 'windows' else '-c'
+    command = ['ping', param, '1', host]
+
+    return subprocess.call(command) == 0
+
+
+def range_ping(host_from: str, host_to: str) -> Optional[Dict[ipaddress.IPv4Address, str]]:
+    hosts_dict: Dict[ipaddress.IPv4Address, str] = {}
+    try:
+        host_from, host_to = ipaddress.ip_address(host_from), ipaddress.ip_address(host_to)
+    except Exception as e:
+        print(e)
+    else:
+        if host_from > host_to:
+            return
+        while host_from <= host_to:
+            hosts_dict[host_from] = "Reachable" if ping(host_from) == 0 else "Unreachable"
+            host_from += 1
+        return hosts_dict
+
+
+def host_ping(addr_list: List[str]) -> None:
+    for addr in addr_list:
+        ip4 = ipaddress.ip_address(addr)
+        print(addr, " Узел доступен" if ping(ip4) == 0 else " Узел доступен")
+
+
+def host_range_ping(host_from: str, host_to: str) -> None:
+    hosts_dict = range_ping(host_from, host_to)
+    for ip_addr, status in hosts_dict.items():
+        print(f'{ip_addr}: {status}')
+
+
+def host_range_ping_tab(host_from: str, host_to: str) -> None:
+    hosts_dict = range_ping(host_from, host_to)
+    disabled_hosts, active_hosts = [], []
+    for host, status in hosts_dict.items():
+        if status == "Reachable":
+            active_hosts.append(host)
+        else:
+            disabled_hosts.append(host)
+    headers = ("Reachable", "Unreachable")
+    print(tabulate(active_hosts, headers=headers[0]))
+    print(tabulate(disabled_hosts, headers=headers[1]))
