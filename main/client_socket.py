@@ -103,7 +103,7 @@ class ClientSocket(ServerClientMixin):
 
 
 @click.command()
-@click.option('--addr', '-a', help='IP address of server')
+@click.option('--addr', '-a', default='localhost', help='IP address of server')
 @click.option('--port', '-p', default=7777, help='TCP-port of server')
 def run(addr: str, port: int) -> None:
     """
