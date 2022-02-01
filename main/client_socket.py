@@ -7,12 +7,12 @@ import time
 import click as click
 from datetime import datetime
 import log.client_log_config
-from utils import ServerClientMixin
+from utils import ClientVerifier, ServerClientMixin
 
 logger = logging.getLogger('app.client')
 
 
-class ClientSocket(ServerClientMixin):
+class ClientSocket(ServerClientMixin, metaclass=ClientVerifier):
     def __init__(self, addr: str, port: int, logger, username: str = "Guest") -> None:
         super().__init__(addr, port, logger)
         self.username = username
@@ -118,10 +118,12 @@ def run(addr: str, port: int) -> None:
     user_interface = threading.Thread(target=client_socket.user_actions)
     user_interface.daemon = True
     user_interface.start()
+    user_interface.join()
 
     receiver = threading.Thread(target=client_socket.get_server_message)
     receiver.daemon = True
     receiver.start()
+    receiver.join()
 
 
 if __name__ == '__main__':
