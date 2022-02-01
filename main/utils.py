@@ -11,7 +11,38 @@ from tabulate import tabulate
 JSONType = Mapping[str, Any]
 
 
+class ClientVerifier(type):
+    def __init__(self, clsname, bases, clsdict):
+        for key, value in clsdict.items():
+            if key.startswith("__"):
+                continue
+
+            if hasattr(value, "__call__"):
+                if value in ("listen", "accept"):
+                    raise TypeError("Client socket must not have `listen` or `accept` methods")
+
+        type.__init__(self, clsname, bases, clsdict)
+
+
+class PortDescriptor:
+    def __set_name__(self, owner, name):
+        self._property_name = name
+
+    def __set__(self, instance, value):
+        if isinstance(value, int) and value >= 0:
+            instance.__dict__[self._property_name] = value
+        else:
+            instance.__dict__[self._property_name] = 7777
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        return instance.__dict__[self._property_name]
+
+
 class ServerClientMixin:
+    port = PortDescriptor()
+
     def __init__(self, addr: str, port: int, logger):
         self.addr = addr
         self.port = port
